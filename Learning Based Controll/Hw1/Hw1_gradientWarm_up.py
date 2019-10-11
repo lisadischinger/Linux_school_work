@@ -30,15 +30,12 @@ i_list = []
 e1_list = []
 e2_list = []
 e3_list = []
-# d = empty([2, 1])                         # back propogated deltas
 y = empty([1, y_n])                         # found output form the summation
 yp = empty([y_n, 1])                        # 1-y matrix
 S = empty([1, s_n])                         # the returns form the seigmond activation functions
 Sp = empty([s_n, 1])                        # 1-S matrix
 x = []                                      # data points
 t = []                                      # training answers
-x_t = []                                    # test data, and answers
-t_t = []
 
 v = np.random.rand(y_n, s_n)                   # create an initial guess of the V weights [[v1, v3], [v2, v4]]
 w = np.random.rand(s_n, x_n)                   # weights used between inputs and hidden layer
@@ -68,7 +65,8 @@ def readTrainData():
 
 
 def readTestData(title):
-    global x_t, t_t
+    x_t = []                                            # test data, and answers
+    t_t = []
     with open(title) as csv_file:
         csv_reader = csv.reader(csv_file, delimiter=',')
         line_count = 0
@@ -77,6 +75,8 @@ def readTestData(title):
             t_t.append([float(row[2]), float(row[3])])
         x_t = asarray(x_t)                   # transfer over to numpy arrays rather than lists
         t_t = asarray(t_t)
+
+        return x_t, t_t
 
 
 def sig_func(x, w, b):
@@ -122,125 +122,215 @@ def find_means():
     return dw, dv, db1, db2
 
 
-def zerofy(m):
-    # makes everything not on the diagonals zero; assumes a square matrix
-    for i in range(np.size(m, 0)):            # for each row
-        for j in range(np.size(m, 1)):         # for each column
-            if not i == j:              # diagonals will have the same indices
-                m[i, j] = 0
-    return m
+def testFeedForward(x, t):
+    # given data pointspredict what the answer will be
+    global e_list
+    z1 = np.dot(x, w1) + b1
+    h1 = 1.0 / (1 + np.exp(-z1))  # output of hidden layer
+    z2 = np.dot(h1, w2) + b2  # sum of (hw2 + b_2)
+    y = 1.0 / (1 + np.exp(-z2))  # predicted output
+
+    return y
 
 
-if __name__ == "__main__":
-    readTrainData()
-    z = 0                                               # counts how many times we have looped through the epoch
-    f_flag = False
-    # print("number of rows: ", np.size(x, 0))
-    while not f_flag:
-        for i in range(np.size(x, 0)):                          # go through an epoch; through all data points
-            # feed forward calculation
-            for j in range(2):                                  # to run through teh full set of weights
-                S[0, j] = sig_func(x[i], w[j], b1[0, j])        # i refers to data line, j refers to what goes with S1
-            Sp = np.reshape(1 - S, (2, 1))
-            for k in range(2):                                  # to run through the second activation function
-                y[0, k] = sig_func(S, v[k], b2[0, k])
-            yp = np.reshape(1 - y, (2, 1))                  # y is a 1x2 matrix; yp is a 2x1 matrix
-
-            # find e
-            e = np.reshape(t[i] - y, (2, 1))                     # e is a 2x1 matrix
-            error = np.linalg.norm(e)                            # magnitude off the error, used to break the learning
-            # i_list.append(z*100 + i)
-            # e_list.append(error)                   # store this data to be plotted later on
-            if error < check:
-                f_flag = True
-
-            # add the sudo-updates to be averaged later; update the weights between the S1 and the output activation
-            sub = zerofy(e*y)                                   # let only the diagonals keep their data
-            delta_2 = np.dot(sub, yp)                           # delta between S1 and the output
-            dv_sum = np.add(dv_sum, step*(delta_2*S))           # dv = step*e*y*(1-y)*S
-            b2_sum = np.add(b2_sum, step*delta_2)
-
-            # Find delta
-            # a = np.dot(w, delta_2) * S                                # sum(w*delta_2) * S
-            set1 = np.dot(w, delta_2)                                   # gets half of the sums
-            set2 = np.dot(w, np.flip(delta_2))
-            a = add(set1, set2) * S
-            delta_1 = np.dot(a, Sp)                                   # delta between input and S1
-            dw_sum = np.add(dw_sum, step*(delta_1*x[i]))
-            b1_sum = np.add(b1_sum, step*delta_1)
-
-            # update the weights and biases every certain amount of time
-            if i and (i % update_rate == 0 or i == 99):
-                dw, dv, db1, db2 = find_means()
-                v = np.add(v, dv)
-                b2 = np.add(b2, np.transpose(db2))
-                w = np.add(w, dw)
-                b1 = np.add(b1, np.transpose(db1))
-                i_list.append(z*100 + i)
-                e_list.append(error)                   # store this data to be plotted later on    # print("i: ", i)
-                print("error: ", round(error, 3))
-
-        z += 1                                                    # increase the count of epochs gone through
-        print(z)
-
-    # plot the error over the time
-    fig, ax = plt.subplots()
-    ax.plot(i_list, e_list)
-    plt.title("Training data set")
-
-    ###############################################
-    # Run on Training Set 1
-    ###############################################
-    readTestData('test1.csv')
-    for i in range(np.size(x_t, 0)):  # go through an epoch; through all data points
-        # feed forward calculation
-        for j in range(2):  # to run through teh full set of weights
-            S[0, j] = sig_func(x_t[i], w[j], b1[0, j])  # i refers to data line, j refers to what goes with S1
-        for k in range(2):  # to run through the second activation function
-            y[0, k] = sig_func(S, v[k], b2[0, k])
-
-        # find e
-        e = t_t[i] - y  # e is a 1x2 matrix
-        e1_list.append(linalg.norm(e))  # store this data to be plotted later on
-    print("The average error from T1 is: {}% ".format(round(mean(e1_list)*100), 3))
+def clean():
     x_t = []
     t_t = []
+    return x_t, t_t
+
+
+def runItAll(hidden_units, lr, training_steps):
+    global e_list
+    w1 = np.random.rand(x.shape[1], hidden_units)
+    w2 = np.random.rand(hidden_units, t.shape[1])
+
+    b1 = np.random.rand(1, hidden_units)
+    b2 = np.random.rand(1, t.shape[1])
+
+    for epoch in range(training_steps):
+        for i in range(100):
+            # Feedforward
+            # sum(xw + b)
+            z1 = np.dot(x[i], w1) + b1
+
+            # output of hidden layer
+            h1 = 1.0 / (1 + np.exp(-z1))
+
+            # sum of (hw2 + b_2)
+            z2 = np.dot(h1, w2) + b2
+
+            # predicted output
+            y = 1.0 / (1 + np.exp(-z2))
+
+            # Backpropagation
+            # back it up!!!! backprop?
+            e = t[i] - y
+            error = np.linalg.norm(e)  # magnitude off the error, used to break the learning
+            i_list.append(epoch * 100 + i)
+            e_list.append(error)
+
+            # delta_2 = C'(t, y) * sigma'(t)
+            delta_2 = (y * (1 - y)) * e
+
+            # delta_1 = w2 * delta_2 * sigma'(h)
+            delta_1 = np.dot(delta_2, w2) * (h1 * (1 - h1))
+
+            # updates weights
+            w2 += lr * np.dot(h1.T, delta_2)
+            w1 += lr * np.dot(x[i].reshape(1, 2).T, delta_1)
+
+            # updates biases
+            b2 += delta_2
+            b1 += delta_1
+
+    print('done')
+    # plot the error over the time
+    plt.plot(i_list, e_list)
+    plt.title("Training data set")
+
+    ##############################################
+    # Run on Training Set 1
+    ###############################################
+    x_t, t_t = readTestData('test1.csv')
+    for i in range(100):
+        e_list = testFeedForward(x_t[i], t_t[i], w1, w2)
+    print("The average error from T1 is: {}% ".format(round(mean(e_list) * 100), 3))
+    x_t, t_t, e_list = clean()
 
     ###############################################
     # Run on Training Set 2
     ###############################################
     readTestData('test2.csv')
-    for i in range(np.size(x_t, 0)):  # go through an epoch; through all data points
-        # feed forward calculation
-        for j in range(2):  # to run through teh full set of weights
-            S[0, j] = sig_func(x_t[i], w[j], b1[0, j])  # i refers to data line, j refers to what goes with S1
-        for k in range(2):  # to run through the second activation function
-            y[0, k] = sig_func(S, v[k], b2[0, k])
-
-        # find e
-        e = t_t[i] - y  # e is a 1x2 matrix
-        e2_list.append(linalg.norm(e))  # store this data to be plotted later on
-    print("The average error from T2 is: {}% ".format(round(mean(e2_list)*100), 3))
-    x_t = []
-    t_t = []
+    for i in range(100):
+        e_list = testFeedForward(x_t[i], t_t[i], w1, w2)
+    print("The average error from T2 is: {}% ".format(round(mean(e_list) * 100), 3))
+    x_t, t_t, e_list = clean()
 
     ###############################################
     # Run on Training Set 3
     ###############################################
     readTestData('test3.csv')
     for i in range(np.size(x_t, 0)):  # go through an epoch; through all data points
-        # feed forward calculation
-        for j in range(2):  # to run through teh full set of weights
-            S[0, j] = sig_func(x_t[i], w[j], b1[0, j])  # i refers to data line, j refers to what goes with S1
-        for k in range(2):  # to run through the second activation function
-            y[0, k] = sig_func(S, v[k], b2[0, k])
-
-        # find e
-        e = t_t[i] - y                          # e is a 1x2 matrix
-        e3_list.append(linalg.norm(e))                   # store this data to be plotted later on
-    print("The average error from T3 is: {}% ".format(round(mean(e3_list)*100), 3))
-    x_t = []
-    t_t = []
+        e_list = testFeedForward(x_t[i], t_t[i], w1, w2)
+    print("The average error from T3 is: {}% ".format(round(mean(e_list) * 100), 3))
+    x_t, t_t, e_list = clean()
 
     plt.show()
-    ref = 47
+
+
+def lmd_overlay3(x_data, plot_a, plot_a2, plot_a3, x_label, ya_label, labels, title):
+    a = labels[0]
+    b = labels[1]
+    c = labels[2]
+    # share x only
+    ax1 = plt.subplot(311)
+    plt.plot(x_data, plot_a, 'r', label=a)
+    plt.plot(x_data, plot_a2, 'b', label=b)
+    plt.plot(x_data, plot_a3, 'g', label=c)
+    plt.ylabel(ya_label)
+    plt.title(title)
+    plt.xlabel(x_label)
+    plt.legend()
+
+    plt.show()
+
+
+if __name__ == "__main__":
+    readTrainData()
+    z = 0                                               # counts how many times we have looped through the epoch
+    f_flag = False
+
+    hidden_units = 4
+    lr = 0.1
+    training_steps = 1000
+
+    w1 = np.random.rand(x.shape[1], hidden_units)
+    w2 = np.random.rand(hidden_units, t.shape[1])
+
+    b1 = np.random.rand(1, hidden_units)
+    b2 = np.random.rand(1, t.shape[1])
+    for epoch in range(1000):
+        for i in range(100):
+            # Feedforward
+            # sum(xw + b)
+            z1 = np.dot(x[i], w1) + b1
+
+            # output of hidden layer
+            h1 = 1.0 / (1 + np.exp(-z1))
+
+            # sum of (hw2 + b_2)
+            z2 = np.dot(h1, w2) + b2
+
+            # predicted output
+            y = 1.0 / (1 + np.exp(-z2))
+
+            # Backpropagation
+            # back it up!!!! backprop?
+            e = t[i] - y
+            error = np.linalg.norm(e)  # magnitude off the error, used to break the learning
+            i_list.append(epoch*100 + i)
+            e_list.append(error)
+
+            # delta_2 = C'(t, y) * sigma'(t)
+            delta_2 = (y * (1 - y)) * e
+
+            # delta_1 = w2 * delta_2 * sigma'(h)
+            delta_1 = np.dot(delta_2, w2.T) * (h1 * (1 - h1))         # used to not have w2 transposed  LMD
+
+            # updates weights
+            w2 += lr * np.dot(h1.T,   delta_2)
+            w1 += lr * np.dot(x[i].reshape(1, 2).T, delta_1)
+
+            # updates biases
+            b2 += delta_2
+            b1 += delta_1
+
+        i_list.append(epoch * 100 + i)
+        e_list.append(error)
+
+
+    ##############################################
+    # Run on Training Set 1
+    ###############################################
+    x_t, t_t = readTestData('test1.csv')
+    count1 = 0
+    count1_ls = []
+    for i in range(100):
+        y = testFeedForward(x_t[i], t_t[i])
+        count1 += np.all(y.round() == t_t[i])
+        count1_ls.append(count1/100.0)
+
+    plt.plot(range(len(count1_ls)), count1_ls, label = "Test1")
+    x_t, t_t = clean()
+
+    ###############################################
+    # Run on Training Set 2
+    ###############################################
+    x_t, t_t = readTestData('test2.csv')
+    count2 = 0
+    count2_ls = []
+    for i in range(100):
+        y = testFeedForward(x_t[i], t_t[i])
+        count2 += np.all(y.round() == t_t[i])
+        count2_ls.append(count2 / 100.0)
+
+    plt.plot(range(len(count2_ls)), count2_ls, label = "Test2")
+    x_t, t_t = clean()
+
+    ###############################################
+    # Run on Training Set 3
+    ###############################################
+    x_t, t_t = readTestData('test3.csv')
+    count3 = 0
+    count3_ls = []
+    for i in range(100):
+        y = testFeedForward(x_t[i], t_t[i])
+        count3 += np.all(y.round() == t_t[i])
+        count3_ls.append(count3 / 100.0)
+
+    plt.plot(range(len(count3_ls)), count3_ls, label = "Test3")
+    plt.title('Accuracy Comparison')
+    plt.xlabel('Data point')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    plt.show()
