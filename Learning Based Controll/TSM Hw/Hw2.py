@@ -28,9 +28,9 @@ class TSM:
         self.p = []                    # array that hold all of the city coordinates
         self.init = True                # used to mark the initial run of something
 
+        self.n = 0  # number of cities
         self.get_data(file_name)        # gather data from CSV
         self.dist_matrix()              # create the distance matrix
-        self.n = 0                      # number of cities
 
         self.S0 = []                    # current best solution list; specifies which cities to go to
         self.d0 = 0                     # objective answer with this solution
@@ -46,7 +46,7 @@ class TSM:
         # variables for evolution algorithm
         self.P1_EV = []  # will gather data over multiple runs, problem 1 with simulated annealing
         self.P1_EV_dt = []
-        self.n_k = 5                                           # number of solutions looking at
+        self.n_k = 15                                           # number of solutions looking at
         self.dtype = [('Solution', list), ('cost', float)]
         self.k = np.empty([1, self.n_k], dtype=self.dtype)         # list of solutions, [solution, value]
         self.k_temp = np.empty([1, self.n_k], dtype=self.dtype)    # temporary during generation of mutants, will append onto
@@ -54,7 +54,9 @@ class TSM:
         self.n_swap = 1                                         # number of times to swap cities in a mutation
 
         # variables for the beam method
-        self.n_bm = 5                                               # number  of initial trees to create
+        self.P1_BM = []                     # will gather data over multiple runs, problem 1 with simulated annealing
+        self.P1_BM_dt = []
+        self.n_bm = self.n                                               # number  of initial trees to create
 
     def get_data(self, file_name):
         # read file and save as a numpy array
@@ -111,9 +113,9 @@ class TSM:
         self.P1_SA_dt = [mean(self.P1_SA_dt), stdev(self.P1_SA_dt)]
         self.P1_SA = [mean(self.P1_SA), stdev(self.P1_SA)]
 
-        print " Simulated Annealing with {} cities:".format(self.n)
-        print "the run time mean and stdev is {} and {}".format(round(self.P1_SA_dt[0], 4), round(self.P1_SA_dt[1], 4))
-        print "the cost mean and stdev is {} and {}".format(round(self.P1_SA[0], 4), round(self.P1_SA[1], 4))
+        print(" Simulated Annealing with {} cities:".format(self.n))
+        print("the run time mean and stdev is {} and {}".format(round(self.P1_SA_dt[0], 4), round(self.P1_SA_dt[1], 4)))
+        print("the cost mean and stdev is {} and {}".format(round(self.P1_SA[0], 4), round(self.P1_SA[1], 4)))
 
         return self.S0, self.d0
 
@@ -123,7 +125,7 @@ class TSM:
 
         for i in range(runs):
             start_time = time.time()
-            # create two initial random solution
+            # create n_k initial random solutions
             for i in range(self.n_k):                            # create the k numbered initial random solutions
                 key_list = random.sample(range(0, self.n), self.n)
                 value = self.sol_value(key_list)
@@ -168,48 +170,73 @@ class TSM:
         self.P1_EV_dt = [mean(self.P1_EV_dt), stdev(self.P1_EV_dt)]
         self.P1_EV = [mean(self.P1_EV), stdev(self.P1_EV)]
 
-        print " Simulated Annealing with {} cities:".format(self.n)
-        print "the mean and standard deviation for run time is {} and {}".format(round(self.P1_EV_dt[0], 4),
-                                                                                 round(self.P1_EV_dt[1], 4))
-        print "the mean and standard deviation for solution cost is {} and {}".format(round(self.P1_EV[0], 4),
-                                                                                          round(self.P1_EV[1], 4))
+        print("")
+        print("Evolution with {} cities:".format(self.n))
+        print("the mean and standard deviation for run time is {} and {}".format(round(self.P1_EV_dt[0], 4),
+                                                                                 round(self.P1_EV_dt[1], 4)))
+        print("the mean and standard deviation for solution cost is {} and {}".format(round(self.P1_EV[0], 4),
+                                                                                          round(self.P1_EV[1], 4)))
 
-        print(self.k[0, 0][1])
         return self.k[0, 0][0], self.k[0, 0][1]     # ev_sol, ev_val
 
-    def beam_method(self):
+    def beam_method(self, runs):
         # will use the beam branch method
-        list = np.array(range(self.n))                              # create a list for all the cities
-        parent_list = np.random.choice(list, self.n_bm, replace=False)      # list of the initial trucks of the trees
+        num_list = np.arange(self.n)                              # create a list for all the cities
+        for i in range(runs):
+            start_time = time.time()
+            parent_list = np.random.choice(num_list, self.n_bm, replace=False)      # list of the initial trucks of the trees
+            parent_champs = np.empty([1, self.n_bm], dtype=self.dtype)
+            # follow each tree to its completion
+            j = 0
+            for parent in parent_list:
+                index = np.where(num_list == parent)
+                self.sub_array = np.delete(num_list, np.where(num_list == parent))        # take the parent out of the list of possible next steps
+                self.parent = [parent]
+                for i in range(1, self.n):                                      # this is how many branch offshoots we have to deal with
+                    child = np.empty([1, self.n-i], dtype=object)
+                    child, self.sub_array = self.next_gen(self.parent, child, self.sub_array)   # create all the possible offspring
+                    self.parent, cost = self.find_best(child, i)                         # now force them to compete for your affection
+                parent_champs[0, j] = list(self.parent), cost
+                j += 1
 
-        # follow each tree to its completion
-        for parent in parent_list:
-            self.sub_array = np.take(list, np.where(list == parent))        # take the parent out of the list of possible next steps
-            self.parent = np.array(parent)
-            for i in range(1, self.n):                                      # this is how many branch offshoots we have to deal with
-                child = np.array([1, self.n - i], dtype=object)
-                child, self.sub_array = self.next_gen(self.parent, child, self.sub_array)   # create all the possible offspring
-                self.parent = self.find_best(child)                         # now force them to compete for your affection
+            sol_sorted = np.sort(parent_champs, order='cost')
+            dt = time.time() - start_time
+            self.P1_BM_dt.append(dt)
+            self.P1_BM.append(sol_sorted[0, 0][1])
+
+        # Find the mean and standard deviation
+        self.P1_BM_dt = [mean(self.P1_BM_dt), stdev(self.P1_BM_dt)]
+        self.P1_BM = [mean(self.P1_BM), stdev(self.P1_BM)]
+        print("")
+        print("Beam Method with {} cities:".format(self.n))
+        print("the mean and standard deviation for run time is {} and {}".format(round(self.P1_BM_dt[0], 4),
+                                                                                 round(self.P1_BM_dt[1], 4)))
+        print("the mean and standard deviation for solution cost is {} and {}".format(round(self.P1_BM[0], 4),
+                                                                                          round(self.P1_BM[1], 4)))
 
 
-    def find_best(self, array):
+    def find_best(self, array, i):
         # used with the beam method to find the cheapest of the children branches
         costs = []
-        for child in array:
+        for j in range(np.size(array, axis=1)):
+            child = array[0, j]
+            if i == self.n-1:                         # for the last round we need to include the cost of returning
+                child = np.append(child, [child[0]])
             cost = self.sol_value(child)                # find the cost for that specific branch
             costs.append(cost)
         minPos = costs.index(min(costs))                # the index of the lowest cost will also be the index of the branch we want
-        return array[minPos]
+        return array[0, minPos], min(costs)
 
     def next_gen(self, parent, child, sub_array):
         # used within the beam method for finding the next branch offspring
-        reject_letter = parent[-1]                                  # figure out what the most recent addon has been
-        reject_index = np.where(sub_array == reject_letter)         # find its index so that we can take it out of the subarray
-        sub_array = np.take(sub_array, reject_index)
-        i = 0
+        if len(parent) != 1:
+            reject_letter = parent[-1]                                  # figure out what the most recent addon has been
+            reject_index = np.where(sub_array == reject_letter)         # find its index so that we can take it out of the subarray
+            sub_array = np.delete(sub_array, reject_index)
+        j = 0
         for addon in sub_array:                                     # go through the remaining possibilities
-            child[i] = np.append(parent, addon)                     # add one of the remaining possibilities to create a branch
-            i += 1
+            child[0, j] = parent + [addon]                    # add one of the remaining possibilities to create a branch
+            j += 1
 
         return child, sub_array
 
@@ -229,14 +256,17 @@ if __name__ == "__main__":
     # For Problem 1 with 15 cities
     anneal_solution, anneal_val = TSM_15.sim_annealing(12)
     ev_sol, ev_val = TSM_15.sim_evolution(12)
+    TSM_15.beam_method(12)
 
     # For Problem 2 with 25 cities
     print(" ")
     anneal_solution, anneal_val = TSM_25.sim_annealing(12)
     ev_sol, ev_val = TSM_25.sim_evolution(12)
-
-    # For Problem 2 with 100 cities
+    TSM_25.beam_method(12)
+    #
+    # # For Problem 2 with 100 cities
     print(" ")
     anneal_solution, anneal_val = TSM_100.sim_annealing(12)
     ev_sol, ev_val = TSM_100.sim_evolution(12)
+    TSM_100.beam_method(12)
 
