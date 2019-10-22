@@ -18,7 +18,7 @@ from numpy import random
 import numpy as np
 import math
 import random
-from collections import Counter
+from astropy.table import Table, Column
 import time
 import matplotlib.pyplot as plt
 from statistics import mean, stdev
@@ -31,6 +31,7 @@ class TSM:
         self.n = 0  # number of cities
         self.get_data(file_name)        # gather data from CSV
         self.dist_matrix()              # create the distance matrix
+        self.dtype = [('Solution', list), ('cost', float)]
 
         self.S0 = []                    # current best solution list; specifies which cities to go to
         self.d0 = 0                     # objective answer with this solution
@@ -38,28 +39,33 @@ class TSM:
         # variables for simulated annealing
         self.P1_SA = []                     # will gather data over multiple runs, problem 1 with simulated annealing
         self.P1_SA_dt = []
-        self.Tmax = 2000
+        self.Tmax = 100
         self.Tmin = 1.25
         self.Tfactor = -math.log(self.Tmax / self.Tmin)         # exponential cooling
         self.max_cycles = 1000                                # max number of times we will run te annealling algorithm
         self.SA_sols_created = self.max_cycles + 1                 # since we are always doing a direct comaprison between two solutions
+        self.SA_best = np.empty([1, 1], dtype=self.dtype)                       # keep track of the best solution found
+        self.SA_best[0, 0] = random.sample(range(0, 5), 5), 1000          # just initialization
 
         # variables for evolution algorithm
         self.P1_EV = []  # will gather data over multiple runs, problem 1 with simulated annealing
         self.P1_EV_dt = []
         self.n_k = 15                                           # number of solutions looking at
-        self.dtype = [('Solution', list), ('cost', float)]
         self.k = np.empty([1, self.n_k], dtype=self.dtype)          # list of solutions, [solution, value]
         self.k_temp = np.empty([1, self.n_k], dtype=self.dtype)     # temporary during generation of mutants, will append onto
         self.k_reject = []                                          # store rejected past solutions
         self.n_swap = 1                                             # number of times to swap cities in a mutation
         self.EV_sols_created = self.max_cycles * self.n_k + self.n_k      # we always return back to k number, but run this to a set of max cylces
+        self.EV_best = np.empty([1, 1], dtype=self.dtype)           # keep track of the best solution found
+        self.EV_best[0, 0] = random.sample(range(0, 5), 5), 1000    # just initialization
 
         # variables for the beam method
         self.P1_BM = []                     # will gather data over multiple runs, problem 1 with simulated annealing
         self.P1_BM_dt = []
         self.n_bm = self.n                                               # number  of initial trees to create
         self.BM_sols_created = 0
+        self.BM_best = np.empty([1, 1], dtype=self.dtype)                   # keep track of the best solution found
+        self.BM_best[0, 0] = random.sample(range(0, 5), 5), 1000            # just initialization
 
     def get_data(self, file_name):
         # read file and save as a numpy array
@@ -97,13 +103,15 @@ class TSM:
             self.S0 = random.sample(range(0, self.n), self.n)
             self.d0 = self.sol_value(self.S0)
 
-            for cycle in range(self.max_cycles):
+            #for cycle in range(self.max_cycles):
+            T = self.Tmax
+            while T > 0.001:
                 S1 = random.sample(range(0, self.n), self.n)
                 d1 = self.sol_value(S1)
                 dE = abs(d1 - self.d0)
 
                 # compare and decide the victor
-                T = self.Tmax * math.exp(self.Tfactor*cycle / self.max_cycles)
+                T = self.Tmax * 0.99   # math.exp(self.Tfactor*cycle / self.max_cycles)
                 if d1 < self.d0 and math.exp(-dE / T) > random.random():       # Transfer the thrown
                     self.S0 = S1
                     self.d0 = d1
@@ -111,6 +119,9 @@ class TSM:
             dt = time.time() - start_time
             self.P1_SA_dt.append(dt)
             self.P1_SA.append(self.d0)
+
+            if self.d0 < self.SA_best[0, 0][1]:             # update what has been the best solution over all the runs
+                self.SA_best[0, 0] = self.S0, self.d0
 
         # Find the mean and standard deviation
         self.P1_SA_dt = [mean(self.P1_SA_dt), stdev(self.P1_SA_dt)]
@@ -120,7 +131,7 @@ class TSM:
         print("the run time mean and stdev is {} and {}".format(round(self.P1_SA_dt[0], 4), round(self.P1_SA_dt[1], 4)))
         print("the cost mean and stdev is {} and {}".format(round(self.P1_SA[0], 4), round(self.P1_SA[1], 4)))
 
-        return self.S0, self.d0
+        return self.SA_best
 
     def sim_evolution(self, runs):
         # apply an evolution algorithm; start with a random guess, create random mutated solutions based off of that
@@ -169,6 +180,9 @@ class TSM:
             self.P1_EV_dt.append(dt)
             self.P1_EV.append(self.k[0, 0][1])
 
+            if self.k[0, 0][1] < self.EV_best[0, 0][1]:      # update what has been the best solution over all the runs
+                self.EV_best[0, 0] = self.k[0, 0]
+
         # Find the mean and standard deviation
         self.P1_EV_dt = [mean(self.P1_EV_dt), stdev(self.P1_EV_dt)]
         self.P1_EV = [mean(self.P1_EV), stdev(self.P1_EV)]
@@ -179,15 +193,14 @@ class TSM:
                                                                                  round(self.P1_EV_dt[1], 4)))
         print("the mean and standard deviation for solution cost is {} and {}".format(round(self.P1_EV[0], 4),
                                                                                           round(self.P1_EV[1], 4)))
-
-        return self.k[0, 0][0], self.k[0, 0][1]     # ev_sol, ev_val
+        return self.EV_best     # ev_sol, ev_val
 
     def beam_method(self, runs):
         # will use the beam branch method
         num_list = np.arange(self.n)                              # create a list for all the cities
         for i in range(runs):
             start_time = time.time()
-            parent_list = np.random.choice(num_list, self.n_bm, replace=False)      # list of the initial trucks of the trees
+            parent_list = np.random.choice(num_list, self.n_bm, replace=False)  # list of the initial trucks of the trees
             parent_champs = np.empty([1, self.n_bm], dtype=self.dtype)
             # follow each tree to its completion
             j = 0
@@ -207,6 +220,9 @@ class TSM:
             self.P1_BM_dt.append(dt)
             self.P1_BM.append(sol_sorted[0, 0][1])
 
+            if sol_sorted[0, 0][1] < self.BM_best[0, 0][1]:   # update what has been the best solution over all the runs
+                self.BM_best[0, 0] = sol_sorted[0, 0]
+
         # Find the mean and standard deviation
         self.P1_BM_dt = [mean(self.P1_BM_dt), stdev(self.P1_BM_dt)]
         self.P1_BM = [mean(self.P1_BM), stdev(self.P1_BM)]
@@ -216,6 +232,7 @@ class TSM:
                                                                                  round(self.P1_BM_dt[1], 4)))
         print("the mean and standard deviation for solution cost is {} and {}".format(round(self.P1_BM[0], 4),
                                                                                           round(self.P1_BM[1], 4)))
+        return self.BM_best
 
     def find_best(self, array, i):
         # used with the beam method to find the cheapest of the children branches
@@ -250,6 +267,43 @@ def distance(p1, p2):
     return d
 
 
+def plot_paths(cities, SA_best, EV_best, BM_best):
+    # plot the path taken by the salesman for each method
+    SA_list = []
+    EV_list = []
+    BM_list = []
+    init = True
+    for i in range(np.size(cities, 0)):             # go through all city spots
+        if init:
+            SA_list = cities[SA_best[0, 0][0][i]]
+            EV_list = cities[EV_best[0, 0][0][i]]
+            BM_list = cities[BM_best[0, 0][0][i]]
+            init = False
+        else:
+            SA_list = np.row_stack((SA_list, cities[SA_best[0, 0][0][i]]))
+            EV_list = np.row_stack((EV_list, cities[EV_best[0, 0][0][i]]))
+            BM_list = np.row_stack((BM_list, cities[BM_best[0, 0][0][i]]))
+
+    # three subplot
+    plt.suptitle("Best Path found for {} cities".format(np.size(cities, 0)))
+    ax1 = plt.subplot(311)
+    plt.plot(SA_list[:, 0], SA_list[:, 1], '-o')
+    ax1.title.set_text("Simulated Annealing")
+    plt.setp(ax1.get_xticklabels(), fontsize=2)
+
+    ax2 = plt.subplot(312, sharex=ax1)
+    plt.plot(EV_list[:, 0], EV_list[:, 1], '-o')
+    ax2.title.set_text("Evolution Algorithm")
+    plt.setp(ax2.get_xticklabels(), visible=False)  # make these tick labels invisible
+
+    ax3 = plt.subplot(313, sharex=ax1)
+    plt.plot(BM_list[:, 0], BM_list[:, 1], '-o')
+    ax3.title.set_text("Beam Search")
+    plt.tight_layout()
+
+    plt.show()
+
+
 if __name__ == "__main__":
     TSM_15 = TSM('15cities.csv')
     TSM_25 = TSM('25cities.csv')
@@ -257,40 +311,47 @@ if __name__ == "__main__":
     TSM_25a = TSM('25cities_a.csv')
 
     # # For Problem 1 with 15 cities
-    # anneal_solution, anneal_val = TSM_15.sim_annealing(12)
-    # ev_sol, ev_val = TSM_15.sim_evolution(12)
-    # TSM_15.beam_method(12)
-    #
+    SA_best_15 = TSM_15.sim_annealing(12)
+    # EV_best_15 = TSM_15.sim_evolution(12)
+    # BM_best_15 = TSM_15.beam_method(12)
+
     # For Problem 2 with 25 cities
     print(" ")
-    anneal_solution, anneal_val = TSM_25.sim_annealing(12)
-    ev_sol, ev_val = TSM_25.sim_evolution(12)
-    TSM_25.beam_method(12)
-    # #
-    # # # For Problem 2 with 100 cities
-    # print(" ")
-    # anneal_solution, anneal_val = TSM_100.sim_annealing(12)
-    # ev_sol, ev_val = TSM_100.sim_evolution(12)
-    # TSM_100.beam_method(12)
+    SA_best_25 = TSM_25.sim_annealing(12)
+    # EV_best_25 = TSM_25.sim_evolution(12)
+    # BM_best_25 = TSM_25.beam_method(12)
+
+    # # For Problem 2 with 100 cities
+    print(" ")
+    SA_best_100 = TSM_100.sim_annealing(12)
+    # EV_best_100 = TSM_100.sim_evolution(12)
+    # BM_best_100 = TSM_100.beam_method(12)
 
     # for problem 3; comparing the two sets of 25 cities
-    print(" For 25 A")
-    anneal_solution, anneal_val = TSM_25a.sim_annealing(12)
-    ev_sol, ev_val = TSM_25a.sim_evolution(12)
-    TSM_25a.beam_method(12)
+    print("For 25 A")
+    SA_best_25a = TSM_25a.sim_annealing(12)
+    # EV_best_25a = TSM_25a.sim_evolution(12)
+    # BM_best_25a = TSM_25a.beam_method(12)
 
     # get city locations to plot on cartesian coordinate system
-    points_25 = TSM_25.p
-    points_25a = TSM_25a.p
-    plt.scatter(points_25[:, 0], points_25[:, 1], label='25')
-    plt.scatter(points_25a[:, 0], points_25a[:, 1], label="25A")
-    plt.xlabel("x pos")
-    plt.ylabel("y pos")
-    plt.legend()
-    plt.title(" City Locations")
-    plt.show()
+    # points_25 = TSM_25.p
+    # points_25a = TSM_25a.p
+    # plt.scatter(points_25[:, 0], points_25[:, 1], label='25')
+    # plt.scatter(points_25a[:, 0], points_25a[:, 1], label="25A")
+    # plt.xlabel("x pos")
+    # plt.ylabel("y pos")
+    # plt.legend()
+    # plt.title(" City Locations")
+    # plt.show()
 
     # problem 4,
     sols_15 = math.factorial(15)
     sols_25 = math.factorial(25)
     sols_100 = math.factorial(100)
+
+    # plot stuff
+    # plot_paths(TSM_15.p, SA_best_15, EV_best_15, BM_best_15)
+    # plot_paths(TSM_25.p, SA_best_25, EV_best_25, BM_best_25)
+    # plot_paths(TSM_25a.p, SA_best_25a, EV_best_25a, BM_best_25a)
+    # plot_paths(TSM_100.p, SA_best_100, EV_best_100, BM_best_100)
+
