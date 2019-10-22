@@ -33,17 +33,16 @@ class TSM:
         self.dist_matrix()              # create the distance matrix
         self.dtype = [('Solution', list), ('cost', float)]
 
-        self.S0 = []                    # current best solution list; specifies which cities to go to
-        self.d0 = 0                     # objective answer with this solution
+        self.current_sol = []                    # current best solution list; specifies which cities to go to
+        self.current_cost= 0                     # objective answer with this solution
 
         # variables for simulated annealing
         self.P1_SA = []                     # will gather data over multiple runs, problem 1 with simulated annealing
         self.P1_SA_dt = []
-        self.Tmax = 100
-        self.Tmin = 1.25
-        self.Tfactor = -math.log(self.Tmax / self.Tmin)         # exponential cooling
-        self.max_cycles = 1000                                # max number of times we will run te annealling algorithm
-        self.SA_sols_created = self.max_cycles + 1                 # since we are always doing a direct comaprison between two solutions
+        self.T = 100
+        self.T_stop = 0.01
+        self.T_step = 0.999
+        # self.SA_sols_created = self.max_cycles + 1                 # since we are always doing a direct comaprison between two solutions
         self.SA_best = np.empty([1, 1], dtype=self.dtype)                       # keep track of the best solution found
         self.SA_best[0, 0] = random.sample(range(0, 5), 5), 1000          # just initialization
 
@@ -55,7 +54,7 @@ class TSM:
         self.k_temp = np.empty([1, self.n_k], dtype=self.dtype)     # temporary during generation of mutants, will append onto
         self.k_reject = []                                          # store rejected past solutions
         self.n_swap = 1                                             # number of times to swap cities in a mutation
-        self.EV_sols_created = self.max_cycles * self.n_k + self.n_k      # we always return back to k number, but run this to a set of max cylces
+        # self.EV_sols_created = self.max_cycles * self.n_k + self.n_k      # we always return back to k number, but run this to a set of max cylces
         self.EV_best = np.empty([1, 1], dtype=self.dtype)           # keep track of the best solution found
         self.EV_best[0, 0] = random.sample(range(0, 5), 5), 1000    # just initialization
 
@@ -100,28 +99,52 @@ class TSM:
         for i in range(runs):
             start_time = time.time()
             # create two initial random solutions
-            self.S0 = random.sample(range(0, self.n), self.n)
-            self.d0 = self.sol_value(self.S0)
+            self.current_sol = random.sample(range(0, self.n), self.n)
+            self.current_cost = self.sol_value(self.current_sol)
 
-            #for cycle in range(self.max_cycles):
-            T = self.Tmax
-            while T > 0.001:
-                S1 = random.sample(range(0, self.n), self.n)
-                d1 = self.sol_value(S1)
-                dE = abs(d1 - self.d0)
+            cost = []
+            while self.T > self.T_stop:
+                # generate random solution
+                new_sol = random.sample(range(0, self.n), self.n)
+                new_cost = self.sol_value(new_sol)
 
-                # compare and decide the victor
-                T = self.Tmax * 0.99   # math.exp(self.Tfactor*cycle / self.max_cycles)
-                if d1 < self.d0 and math.exp(-dE / T) > random.random():       # Transfer the thrown
-                    self.S0 = S1
-                    self.d0 = d1
+                # calculate loss
+                cost_delta = self.current_cost - new_cost
+
+                # determine acceptance probability
+                probability = math.exp(cost_delta / self.T)
+
+                # accept new solution if its better or by probability
+                if cost_delta > 0 or probability > random.random():
+                    self.current_sol = new_sol
+                    self.current_cost = new_cost
+
+                # append new solution to cost list
+                cost.append(self.current_cost)
+
+                # update temperature
+                self.T *= self.T_step
+
+            # #for cycle in range(self.max_cycles):
+            # while self.T > 0.001:
+            #     # print(self.T)
+            #     S1 = random.sample(range(0, self.n), self.n)
+            #     d1 = self.sol_value(S1)
+            #     dE = self.d0 - d1
+            #
+            #     # compare and decide the victor
+            #     self.T = self.T * 0.99   # math.exp(self.Tfactor*cycle / self.max_cycles)
+            #     if d1 < self.d0 or math.exp(dE / self.T) > random.random():       # Transfer the thrown
+            #         self.S0 = S1
+            #         self.d0 = d1
 
             dt = time.time() - start_time
             self.P1_SA_dt.append(dt)
-            self.P1_SA.append(self.d0)
+            self.P1_SA.append(self.current_cost)
+            # print("current cost: ", self.current_cost)
 
-            if self.d0 < self.SA_best[0, 0][1]:             # update what has been the best solution over all the runs
-                self.SA_best[0, 0] = self.S0, self.d0
+            if self.current_cost < self.SA_best[0, 0][1]:             # update what has been the best solution over all the runs
+                self.SA_best[0, 0] = self.current_sol, self.current_cost
 
         # Find the mean and standard deviation
         self.P1_SA_dt = [mean(self.P1_SA_dt), stdev(self.P1_SA_dt)]
@@ -130,6 +153,8 @@ class TSM:
         print(" Simulated Annealing with {} cities:".format(self.n))
         print("the run time mean and stdev is {} and {}".format(round(self.P1_SA_dt[0], 4), round(self.P1_SA_dt[1], 4)))
         print("the cost mean and stdev is {} and {}".format(round(self.P1_SA[0], 4), round(self.P1_SA[1], 4)))
+
+        plt.show()
 
         return self.SA_best
 
@@ -145,7 +170,7 @@ class TSM:
                 value = self.sol_value(key_list)
                 self.k[0, i] = key_list, value
 
-            for cycle in range(self.max_cycles):                        # run for a certain number of cycles
+            for cycle in range(1000):                        # run for a certain number of cycles
                 for i in range(self.n_k):                       # mutate each current solution in set
                     j = 0
                     while j < self.n_swap:       # loop for how many times we want to swap cities for a single mutation
@@ -312,26 +337,26 @@ if __name__ == "__main__":
 
     # # For Problem 1 with 15 cities
     SA_best_15 = TSM_15.sim_annealing(12)
-    # EV_best_15 = TSM_15.sim_evolution(12)
-    # BM_best_15 = TSM_15.beam_method(12)
+    EV_best_15 = TSM_15.sim_evolution(12)
+    BM_best_15 = TSM_15.beam_method(12)
 
     # For Problem 2 with 25 cities
     print(" ")
     SA_best_25 = TSM_25.sim_annealing(12)
-    # EV_best_25 = TSM_25.sim_evolution(12)
-    # BM_best_25 = TSM_25.beam_method(12)
+    EV_best_25 = TSM_25.sim_evolution(12)
+    BM_best_25 = TSM_25.beam_method(12)
 
     # # For Problem 2 with 100 cities
     print(" ")
     SA_best_100 = TSM_100.sim_annealing(12)
-    # EV_best_100 = TSM_100.sim_evolution(12)
-    # BM_best_100 = TSM_100.beam_method(12)
+    EV_best_100 = TSM_100.sim_evolution(12)
+    BM_best_100 = TSM_100.beam_method(12)
 
     # for problem 3; comparing the two sets of 25 cities
     print("For 25 A")
     SA_best_25a = TSM_25a.sim_annealing(12)
-    # EV_best_25a = TSM_25a.sim_evolution(12)
-    # BM_best_25a = TSM_25a.beam_method(12)
+    EV_best_25a = TSM_25a.sim_evolution(12)
+    BM_best_25a = TSM_25a.beam_method(12)
 
     # get city locations to plot on cartesian coordinate system
     # points_25 = TSM_25.p
@@ -350,8 +375,8 @@ if __name__ == "__main__":
     sols_100 = math.factorial(100)
 
     # plot stuff
-    # plot_paths(TSM_15.p, SA_best_15, EV_best_15, BM_best_15)
-    # plot_paths(TSM_25.p, SA_best_25, EV_best_25, BM_best_25)
-    # plot_paths(TSM_25a.p, SA_best_25a, EV_best_25a, BM_best_25a)
-    # plot_paths(TSM_100.p, SA_best_100, EV_best_100, BM_best_100)
+    plot_paths(TSM_15.p, SA_best_15, EV_best_15, BM_best_15)
+    plot_paths(TSM_25.p, SA_best_25, EV_best_25, BM_best_25)
+    plot_paths(TSM_25a.p, SA_best_25a, EV_best_25a, BM_best_25a)
+    plot_paths(TSM_100.p, SA_best_100, EV_best_100, BM_best_100)
 
