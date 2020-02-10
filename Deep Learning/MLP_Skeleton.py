@@ -59,7 +59,7 @@ class LinearTransform(object):
         plane_of_gradients = np.multiply(dE_dW, -LR)                        # -LR * dE/dW
 
         try:            # add this new column of gradients for momentum purposes
-            self.d_W = np.append(self.d_W, plane_of_gradients, axis=2)
+            self.d_W = np.append(self.d_W, np.atleast_3d(plane_of_gradients), axis=2)
         except:
             self.d_W = np.atleast_3d(plane_of_gradients)              # creating of the 3D gradient list for momentum
 
@@ -69,6 +69,7 @@ class LinearTransform(object):
         # will apply momentum to the gradients to provide one final gradient that this round of weight updates will be
         self.m_B = np.multiply(self.m_B, M) + avg_d_B
         self.m_W = np.multiply(self.m_W, M) + avg_d_W
+        dud = 47
 
     def update_weights(self, M = 0.0, L2 = 0.0):
         # call this to do the work of updating the weights and biases
@@ -80,6 +81,11 @@ class LinearTransform(object):
         # actual weight update
         self.B = np.add(self.B, self.m_B)
         self.W = np.add(self.W, self.m_W)
+
+        m_w_norm = np.linalg.norm(self.m_W)
+        return m_w_norm
+
+
 
 
 class ReLU(object):                 # This is a class for a ReLU layer max(x,0)
@@ -133,9 +139,11 @@ class SigmoidCrossEntropy(object):
         # dE/dz = -y*/z + (1-y*)/(1-z); dz/ds = z*(1-z)
         return np.subtract(self.z_SCC, self.y)          # the delta based off of the loss function and sigmoid
 
-    def accuracy(self):
+    def accuracy(self, total_number):
         # calculate the accuracy of this epoch; accuracy = n_correct_predictions/n_examples thus far
-        return self.n_correct / self.n_count
+        accuracy = self.n_correct / total_number
+        self.n_correct = 0                          # reset for the next epoch
+        return accuracy
 
 
 class MLP(object):
@@ -173,11 +181,12 @@ class MLP(object):
 
     def update_weights(self, M, L2):            #### FROZE Weights 1
         # this is where weights and biases are actually updated, after the periodic delay
-        self.LT2.update_weights(M, L2)
-        self.LT1.update_weights(M, L2)
+        LT2_norm_dW = self.LT2.update_weights(M, L2)
+        # self.LT1.update_weights(M, L2)
+        return LT2_norm_dW
 
-    def evaluate(self, examples_in_epoch):
-        return self.SCC.accuracy()
+    def evaluate(self, n_points):
+        return self.SCC.accuracy(n_points)
 
 
 def lmd_plot(x, y, x_label, y_label, title):            # save_plot, path):
@@ -198,9 +207,6 @@ def Normalize_inputs(data):
     norm = np.true_divide(data, max_val)
     return norm
 
-
-# def L2_loss(loss_array):
-#     # find the magnitude of the loss
 
 if __name__ == '__main__':
 
@@ -228,7 +234,7 @@ if __name__ == '__main__':
     # initialize weights
     ####################
     n_train = train_x.shape[0]                  # the number of training examples inputs, num_examples
-    # n_test = test_x.shape[0]                    # the number of testing examples inputs
+    n_test = test_x.shape[0]                    # the number of testing examples inputs
     n_i = train_x.shape[1]                      # the number ot training inputs for each training example, input_dims
     n_k = train_y.shape[1]                      # the number of possible training labels
 
@@ -237,28 +243,38 @@ if __name__ == '__main__':
     ########################
     n_j = 50                                # number of nodes in the hidden layer
     num_epochs = 20                      # number of time we will run through training set
-    num_batches = 100                        # out delay in updating the weights, wait num_batch times before updating
+    num_batches = 100                       # out delay in updating the weights, wait num_batch times before updating
     LR = 0.0001                              # Learning Rate
-    M = 0.8                                 # Momentum coefficient
+    M = 0.98                                 # Momentum coefficient
     L2 = 1                                  # L2 penalty???
+
+    batch_size_list = np.linspace(50, 500, num=50, endpoint=True)  # to test accuracy against batch size
+    LR_list = np.linspace(.0001, .01, num=50, endpoint=True)      # to test accuracy against batch size
+    n_j_list = np.linspace(5, 100, num=10)
 
     ################
     # Data Storage
     ################
     train_loss_list_per_batch = []
+    test_loss_list_per_batch = []
     train_loss_list_per_epoch = []
     train_loss_list_overall = []
+    test_loss_overall = []
     train_accuracy_list = []
 
-    mlp = MLP(n_i, n_j, n_k, num_batches)  # input_dims, hidden layer_dims, output_dim
+    mlp = MLP(n_i, n_j, n_k, num_batches)           # input_dims, hidden layer_dims, output_dim
+
+    ###########
     # training
+    ###########
     for epoch in range(num_epochs):                     # we only want to train on this set a certain amount of time
         number_in_batch = 0
         mb = 0                                          # mini-batch number
         for example in range(n_train):
             E = mlp.train(train_x[example], train_y[example], LR, number_in_batch)   # x_batch, y_batch, learning_rate, momentum, l2_penalty
             if example % (num_batches-1) == 0 and example != 0:                     # periodicly update weights
-                mlp.update_weights(M, L2)
+                LT2_norm_d_w = mlp.update_weights(M, L2)
+                # print("LT2 gradient norm: ", round(LT2_norm_d_w, 5))
                 average_b_loss = np.mean(train_loss_list_per_batch)
                 train_loss_list_per_epoch.append(average_b_loss)
                 print('\r[Epoch {}, mb {}]    Avg.Loss = {}'.format(epoch + 1, mb, round(average_b_loss, 5)), end='')
@@ -275,14 +291,38 @@ if __name__ == '__main__':
         print('\r[Epoch {} Final]    Avg.Loss = {}'.format(epoch + 1, round(average_e_loss, 5)), end='')
         sys.stdout.flush()
         train_loss_list_per_epoch = []
-    # 	# MAKE SURE TO COMPUTE train_loss, train_accuracy, test_loss, test_accuracy
+
     print()
     print('    Train Loss: {:.3f}    Train Acc.: {:.2f}%'.format(average_e_loss, 100. * train_accuracy))
-    #     print('    Test Loss:  {:.3f}    Test Acc.:  {:.2f}%'.format(test_loss, 100. * test_accuracy))
+
+    ########
+    # test
+    ########
+    number_in_batch = 0
+    mb = 0  # mini-batch number
+    for example in range(n_test):
+        E = mlp.test(test_x[example], test_y[example])  # x_batch, y_batch, learning_rate, momentum, l2_penalty
+        if example % (num_batches - 1) == 0 and example != 0:                       # periodicly average loss
+            average_b_loss = np.mean(test_loss_list_per_batch)
+            test_loss_overall.append(average_b_loss)
+            print('\r[Epoch {}, mb {}]    Avg.Loss = {}'.format(epoch + 1, mb, round(average_b_loss, 5)), end='')
+            mb += 1
+            test_loss_list_per_batch = []
+        number_in_batch += 1
+        test_loss_list_per_batch.append(E[0])
+
+    test_accuracy = mlp.evaluate(n_test)
+    print('    Test Loss:  {:.3f}    Test Acc.:  {:.2f}%'.format(average_b_loss, 100. * test_accuracy))
 
     ##############
     # Plot Time!
     ##############
     list_o_epochs = np.linspace(0, num_epochs, num_epochs)
     lmd_plot(list_o_epochs, train_loss_list_overall, "Epochs", "Loss", "Training Loss")
+
+    # list_o_tests = np.linspace(0, n_test, n_test)
+    # lmd_plot(list_o_tests, test_loss_overall, "Test Point", "Loss", "Test Loss")
+
+    dud = 47
+    # plot for accuracy based off of different batch sizes
 
